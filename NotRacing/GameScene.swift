@@ -1,7 +1,8 @@
 import SpriteKit
 import GameplayKit
 
-class GameScene: SKScene, SKPhysicsContactDelegate {
+class GameScene: SKScene {
+
     // MARK: - Game Nodes
     var vehicleBody: SKSpriteNode!
     var frontWheel: SKShapeNode!
@@ -9,43 +10,38 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
     var gasButton: SKSpriteNode!
     var brakeButton: SKSpriteNode!
     var cameraNode: SKCameraNode!
-    
-    // MARK: - Terrain System
+
+    // MARK: - Controls
+    var gasPressed = false
+    var brakePressed = false
+    var anyWheelOnGround = false
+    var restartButton: SKSpriteNode!
+
+
+    // MARK: - HUD (RPM & Speed)
+    var rpmBarBackground: SKSpriteNode!
+    var rpmBarFill: SKSpriteNode!
+    var rpmLabel: SKLabelNode!
+    var speedLabel: SKLabelNode!
+
+    // MARK: - Terrain
     var terrainSegments: [SKShapeNode] = []
     var nextTerrainX: CGFloat = -1500
     var lastY: CGFloat = 100
-    
-    // MARK: - Ground Contact Tracking
-    var rearWheelContacts = 0
-    var frontWheelContacts = 0
-    var rearWheelOnGround: Bool { rearWheelContacts > 0 }
-    var frontWheelOnGround: Bool { frontWheelContacts > 0 }
-    var anyWheelOnGround: Bool { rearWheelOnGround || frontWheelOnGround }
-    
-    // MARK: - Control Flags
-    var gasPressed = false
-    var brakePressed = false
-    
-    // MARK: - Bitmask Setup
-    struct PhysicsCategory {
-        static let none: UInt32 = 0
-        static let rearWheel: UInt32 = 0x1 << 0
-        static let frontWheel: UInt32 = 0x1 << 1
-        static let ground: UInt32 = 0x1 << 2
-    }
 
     override func didMove(to view: SKView) {
         physicsWorld.gravity = CGVector(dx: 0, dy: -9.8)
-        physicsWorld.contactDelegate = self
         backgroundColor = .cyan
-        
+
         createInitialTerrain()
         createVehicle()
         setupCamera()
         setupControls()
+        setupRPMBar()
+        setupHUDLabels()
     }
-    
-    // MARK: - Infinite Terrain
+
+    // MARK: - Terrain System
     func createInitialTerrain() {
         for _ in 0..<3 {
             let segment = createTerrainSegment(startX: nextTerrainX, width: 4000)
@@ -54,241 +50,251 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
             nextTerrainX += 4000
         }
     }
-    
+
     func createTerrainSegment(startX: CGFloat, width: CGFloat) -> SKShapeNode {
         let path = CGMutablePath()
         path.move(to: CGPoint(x: startX, y: lastY))
-        
+
         let endX = startX + width
         var y = lastY
-        
+
         for i in stride(from: startX, through: endX, by: 100) {
             let noise = sin(Double(i) / 800.0 * .pi) * 50.0
             y = CGFloat(100 + noise)
             path.addLine(to: CGPoint(x: i, y: y))
         }
-        
+
         lastY = y
-        
-        let groundSegment = SKShapeNode(path: path)
-        groundSegment.strokeColor = .brown
-        groundSegment.lineWidth = 10
-        groundSegment.physicsBody = SKPhysicsBody(edgeChainFrom: path)
-        groundSegment.physicsBody?.isDynamic = false
-        groundSegment.physicsBody?.friction = 2.0
-        groundSegment.physicsBody?.categoryBitMask = PhysicsCategory.ground
-        
-        return groundSegment
+
+        let ground = SKShapeNode(path: path)
+        ground.strokeColor = .brown
+        ground.lineWidth = 10
+        ground.physicsBody = SKPhysicsBody(edgeChainFrom: path)
+        ground.physicsBody?.isDynamic = false
+        ground.physicsBody?.friction = 1.0
+
+        return ground
     }
-    
+
     func checkAndGenerateTerrain() {
         if vehicleBody.position.x + 3000 > nextTerrainX {
-            let newSegment = createTerrainSegment(startX: nextTerrainX, width: 4000)
-            addChild(newSegment)
-            terrainSegments.append(newSegment)
+            let newSeg = createTerrainSegment(startX: nextTerrainX, width: 4000)
+            addChild(newSeg)
+            terrainSegments.append(newSeg)
             nextTerrainX += 4000
-            
+
             if terrainSegments.count > 5 {
-                let old = terrainSegments.removeFirst()
-                old.removeFromParent()
+                terrainSegments.removeFirst().removeFromParent()
             }
         }
     }
-    
-    // MARK: - Vehicle Creation
-    func createVehicle() {
-        let wheelRadius: CGFloat = 80
-        let wheelSpacing: CGFloat = 160
 
-        // --- Rear Wheel ---
-        rearWheel = createWheel(radius: wheelRadius)
-        rearWheel.position = CGPoint(x: 0, y: 800)
-        rearWheel.physicsBody?.categoryBitMask = PhysicsCategory.rearWheel
-        rearWheel.physicsBody?.contactTestBitMask = PhysicsCategory.ground
-        addChild(rearWheel)
-
-        // --- Front Wheel ---
-        frontWheel = createWheel(radius: wheelRadius)
-        frontWheel.position = CGPoint(x: wheelSpacing * 2, y: 800)
-        frontWheel.physicsBody?.categoryBitMask = PhysicsCategory.frontWheel
-        frontWheel.physicsBody?.contactTestBitMask = PhysicsCategory.ground
-        addChild(frontWheel)
-
-        // --- Vehicle Body ---
-        vehicleBody = SKSpriteNode(color: .red, size: CGSize(width: 400, height: 200))
-        vehicleBody.position = CGPoint(x: wheelSpacing, y: 800 + 120)
-        vehicleBody.physicsBody = SKPhysicsBody(rectangleOf: vehicleBody.size)
-        vehicleBody.physicsBody?.allowsRotation = true
-        vehicleBody.physicsBody?.mass = 1.0
-        vehicleBody.physicsBody?.friction = 0.5
-        vehicleBody.physicsBody?.linearDamping = 0.3
-        vehicleBody.physicsBody?.angularDamping = 0.5
-        addChild(vehicleBody)
-
-        // --- Joints ---
-        let rearJoint = SKPhysicsJointPin.joint(
-            withBodyA: vehicleBody.physicsBody!,
-            bodyB: rearWheel.physicsBody!,
-            anchor: rearWheel.position
-        )
-        physicsWorld.add(rearJoint)
-
-        let frontJoint = SKPhysicsJointPin.joint(
-            withBodyA: vehicleBody.physicsBody!,
-            bodyB: frontWheel.physicsBody!,
-            anchor: frontWheel.position
-        )
-        physicsWorld.add(frontJoint)
-    }
-    
+    // MARK: - Vehicle
     func createWheel(radius: CGFloat) -> SKShapeNode {
         let wheel = SKShapeNode(circleOfRadius: radius)
         wheel.fillColor = .darkGray
         wheel.strokeColor = .black
         wheel.lineWidth = 4
 
-        // Visual spokes
-        let spoke1 = SKShapeNode(rectOf: CGSize(width: radius * 1.8, height: 6))
+        let spoke1 = SKShapeNode(rectOf: CGSize(width: radius * 1.2, height: 6))
         spoke1.fillColor = .white
         wheel.addChild(spoke1)
 
-        let spoke2 = SKShapeNode(rectOf: CGSize(width: radius * 1.8, height: 6))
+        let spoke2 = SKShapeNode(rectOf: CGSize(width: radius * 1.2, height: 6))
         spoke2.fillColor = .white
         spoke2.zRotation = .pi / 2
         wheel.addChild(spoke2)
 
-        // Physics setup
         wheel.physicsBody = SKPhysicsBody(circleOfRadius: radius)
         wheel.physicsBody?.allowsRotation = true
-        wheel.physicsBody?.friction = 1.0
+        wheel.physicsBody?.friction = 2.0
         wheel.physicsBody?.restitution = 0.2
         wheel.physicsBody?.linearDamping = 0.3
         wheel.physicsBody?.angularDamping = 0.4
-        wheel.physicsBody?.mass = 0.3
+        wheel.physicsBody?.mass = 0.1
 
         return wheel
     }
 
-    // MARK: - Movement Logic
-    func accelerate() {
-        // Always spin the rear wheel
-        rearWheel.physicsBody?.applyTorque(-70000)
+    func createVehicle() {
+        let wheelRadius: CGFloat = 80
+        let wheelSpacing: CGFloat = 160
 
-        // If airborne, also tilt the body backward
+        // --- Wheels ---
+        rearWheel = createWheel(radius: wheelRadius)
+        rearWheel.position = CGPoint(x: 0, y: 830)
+        addChild(rearWheel)
+
+        frontWheel = createWheel(radius: wheelRadius)
+        frontWheel.position = CGPoint(x: wheelSpacing * 2, y: 830)
+        addChild(frontWheel)
+
+        // --- Car body ---
+        vehicleBody = SKSpriteNode(color: .red, size: CGSize(width: 400, height: 160))
+        vehicleBody.position = CGPoint(x: wheelSpacing, y: 800 + 150)
+        vehicleBody.physicsBody = SKPhysicsBody(rectangleOf: vehicleBody.size)
+        vehicleBody.physicsBody?.allowsRotation = true
+        vehicleBody.physicsBody?.mass = 8.0
+        vehicleBody.physicsBody?.applyForce(CGVector(dx: 0, dy: -5))
+        addChild(vehicleBody)
+
+        // --- Suspension for both wheels ---
+        addSuspension(body: vehicleBody, wheel: rearWheel, wheelOffsetX: -wheelSpacing)
+        addSuspension(body: vehicleBody, wheel: frontWheel, wheelOffsetX: wheelSpacing)
+    }
+
+    func addSuspension(body: SKSpriteNode, wheel: SKShapeNode, wheelOffsetX: CGFloat) {
+        guard let bodyPhysics = body.physicsBody,
+              let wheelPhysics = wheel.physicsBody else { return }
+
+        // Pin joint — lets wheel rotate
+        let pin = SKPhysicsJointPin.joint(
+            withBodyA: bodyPhysics,
+            bodyB: wheelPhysics,
+            anchor: wheel.position
+        )
+        pin.frictionTorque = 0.0
+        physicsWorld.add(pin)
+
+        // Limit joint — vertical suspension travel
+        let anchorA = CGPoint(
+            x: wheel.position.x,
+            y: wheel.position.y + 80
+        )
+        let limit = SKPhysicsJointLimit.joint(
+            withBodyA: bodyPhysics,
+            bodyB: wheelPhysics,
+            anchorA: anchorA,
+            anchorB: wheel.position
+        )
+        limit.maxLength = 500000
+        physicsWorld.add(limit)
+
+        // Spring joint — soft bouncy suspension
+        let spring = SKPhysicsJointSpring.joint(
+            withBodyA: bodyPhysics,
+            bodyB: wheelPhysics,
+            anchorA: body.position,   // ✅ use the node’s position
+            anchorB: wheel.position
+        )
+        spring.frequency = 0.00002
+        spring.damping = 0.000005
+        physicsWorld.add(spring)
+    }
+
+
+
+    // MARK: - MOTOR LOGIC
+    func accelerate() {
+        // smooth realistic torque
+        rearWheel.physicsBody?.applyTorque(-200)
+
+        // air tilt
         if !anyWheelOnGround {
-            vehicleBody.physicsBody?.applyAngularImpulse(0.2)
+            vehicleBody.physicsBody?.applyAngularImpulse(0.0)
         }
     }
 
     func brake() {
-        // Always spin the rear wheel (reverse torque)
-        rearWheel.physicsBody?.applyTorque(70000)
+        rearWheel.physicsBody?.applyTorque(400)
 
-        // If airborne, also tilt the body forward
         if !anyWheelOnGround {
-            vehicleBody.physicsBody?.applyAngularImpulse(-0.2)
+            vehicleBody.physicsBody?.applyAngularImpulse(-0.0)
         }
     }
 
-    func restartGame() {
-        let newScene = GameScene(size: self.size)
-        newScene.scaleMode = self.scaleMode
-        self.view?.presentScene(newScene, transition: SKTransition.fade(withDuration: 0.4))
+    // MARK: - HUD
+    func setupRPMBar() {
+        rpmBarBackground = SKSpriteNode(color: .darkGray, size: CGSize(width: 800, height: 40))
+        rpmBarBackground.position = CGPoint(x: 0, y: -650)
+        rpmBarBackground.alpha = 0.6
+        rpmBarBackground.zPosition = 50
+        cameraNode.addChild(rpmBarBackground)
+
+        rpmBarFill = SKSpriteNode(color: .green, size: CGSize(width: 0, height: 40))
+        rpmBarFill.anchorPoint = CGPoint(x: 0, y: 0.5)
+        rpmBarFill.position = CGPoint(x: -400, y: 0)
+        rpmBarBackground.addChild(rpmBarFill)
     }
 
+    func setupHUDLabels() {
+        rpmLabel = SKLabelNode(fontNamed: "Helvetica")
+        rpmLabel.fontSize = 36
+        rpmLabel.fontColor = .white
+        rpmLabel.position = CGPoint(x: 0, y: -600)
+        rpmLabel.zPosition = 100
+        cameraNode.addChild(rpmLabel)
 
-    // MARK: - Contact Handling
-    func didBegin(_ contact: SKPhysicsContact) {
-        let a = contact.bodyA.categoryBitMask
-        let b = contact.bodyB.categoryBitMask
-
-        if (a == PhysicsCategory.rearWheel && b == PhysicsCategory.ground) ||
-           (b == PhysicsCategory.rearWheel && a == PhysicsCategory.ground) {
-            rearWheelContacts += 1
-        }
-
-        if (a == PhysicsCategory.frontWheel && b == PhysicsCategory.ground) ||
-           (b == PhysicsCategory.frontWheel && a == PhysicsCategory.ground) {
-            frontWheelContacts += 1
-        }
+        speedLabel = SKLabelNode(fontNamed: "Helvetica-Bold")
+        speedLabel.fontSize = 48
+        speedLabel.fontColor = .yellow
+        speedLabel.position = CGPoint(x: 0, y: -550)
+        speedLabel.zPosition = 100
+        cameraNode.addChild(speedLabel)
     }
 
-    func didEnd(_ contact: SKPhysicsContact) {
-        let a = contact.bodyA.categoryBitMask
-        let b = contact.bodyB.categoryBitMask
-
-        if (a == PhysicsCategory.rearWheel && b == PhysicsCategory.ground) ||
-           (b == PhysicsCategory.rearWheel && a == PhysicsCategory.ground) {
-            rearWheelContacts = max(0, rearWheelContacts - 1)
-        }
-
-        if (a == PhysicsCategory.frontWheel && b == PhysicsCategory.ground) ||
-           (b == PhysicsCategory.frontWheel && a == PhysicsCategory.ground) {
-            frontWheelContacts = max(0, frontWheelContacts - 1)
-        }
-    }
-
-    // MARK: - Frame Updates
-    override func didSimulatePhysics() {
-        let deltaTime: CGFloat = 1.0 / 60.0
-        let wheelRadius: CGFloat = 80.0
-
-        if let rearBody = rearWheel.physicsBody {
-            let vx = rearBody.velocity.dx
-            rearWheel.zRotation += -vx / wheelRadius * deltaTime
-        }
-
-        if let frontBody = frontWheel.physicsBody {
-            let vx = frontBody.velocity.dx
-            frontWheel.zRotation += -vx / wheelRadius * deltaTime
-        }
-
-        cameraNode.position = CGPoint(
-            x: vehicleBody.position.x + 600,
-            y: vehicleBody.position.y + 200
-        )
-
-        checkAndGenerateTerrain()
-    }
-    
-    override func update(_ currentTime: TimeInterval) {
-        if gasPressed { accelerate() }
-        if brakePressed { brake() }
-    }
-
-    // MARK: - Camera Setup
+    // MARK: - Camera
     func setupCamera() {
         cameraNode = SKCameraNode()
         camera = cameraNode
         addChild(cameraNode)
     }
 
-    // MARK: - On-Screen Buttons
+    // MARK: - Controls
     func setupControls() {
-        let buttonSize = CGSize(width: 160, height: 160)
-        
-        gasButton = SKSpriteNode(color: .green, size: buttonSize)
+        let size = CGSize(width: 160, height: 160)
+
+        gasButton = SKSpriteNode(color: .green, size: size)
         gasButton.name = "gas"
         gasButton.alpha = 0.4
         gasButton.position = CGPoint(x: 700, y: -500)
-        
-        brakeButton = SKSpriteNode(color: .red, size: buttonSize)
+        cameraNode.addChild(gasButton)
+
+        brakeButton = SKSpriteNode(color: .red, size: size)
         brakeButton.name = "brake"
         brakeButton.alpha = 0.4
         brakeButton.position = CGPoint(x: -700, y: -500)
-        
-        cameraNode.addChild(gasButton)
         cameraNode.addChild(brakeButton)
-        
-        let restartButton = SKSpriteNode(color: .yellow, size: CGSize(width: 140, height: 140))
-        restartButton.name = "restart"
-        restartButton.alpha = 0.6
-        restartButton.position = CGPoint(x: 600, y: 400)
-        cameraNode.addChild(restartButton)
 
     }
-    
-    // MARK: - Input Handling
+    func setupRestartButton() {
+        guard let cameraNode = camera else { return }
+
+        let halfWidth = size.width / 2
+        let halfHeight = size.height / 2
+
+        restartButton = SKSpriteNode(color: .blue, size: CGSize(width: 150, height: 150))
+        restartButton.name = "restart"
+        restartButton.alpha = 0.9
+        restartButton.zPosition = 9999
+
+        // Place EXACTLY in the top-right corner
+        restartButton.position = CGPoint(
+            x: halfWidth - 100,
+            y: halfHeight - 100
+        )
+
+        // Giant icon so you can't miss it
+        let icon = SKLabelNode(text: "⟳")
+        icon.fontSize = 100
+        icon.fontColor = .white
+        icon.verticalAlignmentMode = .center
+        restartButton.addChild(icon)
+
+        cameraNode.addChild(restartButton)
+    }
+    func restartGame() {
+        if let view = self.view {
+            let newScene = GameScene(size: self.size)
+            newScene.scaleMode = self.scaleMode
+            
+            let transition = SKTransition.fade(withDuration: 0.3)
+            view.presentScene(newScene, transition: transition)
+        }
+    }
+
+
+    // MARK: - Touch Input
     override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent?) {
         for touch in touches {
             let location = touch.location(in: cameraNode)
@@ -296,10 +302,8 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
 
             if node.name == "gas" {
                 gasPressed = true
-
             } else if node.name == "brake" {
                 brakePressed = true
-
             } else if node.name == "restart" {
                 restartGame()
             }
@@ -310,5 +314,50 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
     override func touchesEnded(_ touches: Set<UITouch>, with event: UIEvent?) {
         gasPressed = false
         brakePressed = false
+    }
+
+    // MARK: - Physics Loop
+    override func didSimulatePhysics() {
+
+        // Continuous control
+        if gasPressed { accelerate() }
+        if brakePressed { brake() }
+
+        // ----- UPDATE RPM + BAR -----
+        var smoothedRPM: CGFloat = 0
+        // ----- SMOOTH RPM -----
+        if let rear = rearWheel.physicsBody {
+            // Convert angular velocity → RPM
+            let targetRPM = abs(rear.angularVelocity) * 60 / (2 * .pi)
+
+            // Limit unrealistic RPM
+            let clampedRPM = min(targetRPM, 300)
+
+            // Smooth interpolation
+            smoothedRPM = smoothedRPM * 0.90 + clampedRPM * 0.10
+
+            let normalized = smoothedRPM / 300
+
+            rpmBarFill.size.width = normalized * 800
+
+            rpmLabel.text = "RPM: \(Int(smoothedRPM))"
+        }
+
+
+        // ----- REALISTIC SPEED -----
+        if let body = vehicleBody.physicsBody {
+            let horizontalSpeed = abs(body.velocity.dx)       // only X speed
+            let kmh = Int(horizontalSpeed * 3.6)              // convert m/s → km/h
+
+            speedLabel.text = "\(kmh/200) km/h"
+        }
+
+        // Camera follows
+        cameraNode.position = CGPoint(
+            x: vehicleBody.position.x + 600,
+            y: vehicleBody.position.y + 200
+        )
+
+        checkAndGenerateTerrain()
     }
 }
