@@ -190,6 +190,12 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
         }
     }
 
+    func restartGame() {
+        let newScene = GameScene(size: self.size)
+        newScene.scaleMode = self.scaleMode
+        self.view?.presentScene(newScene, transition: SKTransition.fade(withDuration: 0.4))
+    }
+
 
     // MARK: - Contact Handling
     func didBegin(_ contact: SKPhysicsContact) {
@@ -273,6 +279,13 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
         
         cameraNode.addChild(gasButton)
         cameraNode.addChild(brakeButton)
+        
+        let restartButton = SKSpriteNode(color: .yellow, size: CGSize(width: 140, height: 140))
+        restartButton.name = "restart"
+        restartButton.alpha = 0.6
+        restartButton.position = CGPoint(x: 600, y: 400)
+        cameraNode.addChild(restartButton)
+
     }
     
     // MARK: - Input Handling
@@ -280,13 +293,19 @@ class GameScene: SKScene, SKPhysicsContactDelegate {
         for touch in touches {
             let location = touch.location(in: cameraNode)
             let node = cameraNode.atPoint(location)
+
             if node.name == "gas" {
                 gasPressed = true
+
             } else if node.name == "brake" {
                 brakePressed = true
+
+            } else if node.name == "restart" {
+                restartGame()
             }
         }
     }
+
 
     override func touchesEnded(_ touches: Set<UITouch>, with event: UIEvent?) {
         gasPressed = false
