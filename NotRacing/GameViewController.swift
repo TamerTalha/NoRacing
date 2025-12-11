@@ -7,8 +7,9 @@ class GameViewController: UIViewController {
     override func viewDidLoad() {
         super.viewDidLoad()
 
-        if let view = self.view as! SKView? {
-            let scene = GameScene(size: CGSize(width: 2388, height: 1668)) // iPad Pro 11" logical points
+        if let view = self.view as? SKView {
+            // iPad Pro 11" logical points
+            let scene = GameScene(size: CGSize(width: 2388, height: 1668))
             scene.scaleMode = .aspectFill
 
             view.presentScene(scene)
