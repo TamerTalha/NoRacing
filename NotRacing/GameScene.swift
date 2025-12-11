@@ -41,13 +41,14 @@ class GameScene: SKScene {
     var pauseOverlay: SKSpriteNode?
     var pausePanel: SKSpriteNode?
 
-    // Audio toggles (placeholders)
+    // Audio toggles
     var isMusicOn = true
     var isSoundOn = true
     var musicLabel: SKLabelNode?
     var soundLabel: SKLabelNode?
 
-    // MARK: - Engine / driving audio
+    // MARK: - Audio nodes
+    var backgroundMusicNode: SKAudioNode?
     var engineIdleNode: SKAudioNode?
     var engineAccelNode: SKAudioNode?
 
@@ -71,53 +72,71 @@ class GameScene: SKScene {
         setupRPMBar()
         setupHUDLabels()
         setupPauseButton()
-        setupAudio()          // sounds
+        setupAudio()
 
         lastVehicleX = vehicleBody.position.x
     }
 
     // MARK: - Audio setup
     func setupAudio() {
-        // Idle / normal driving loop
+        // 1) Background music (looped)
+        let music = SKAudioNode(fileNamed: "bg_music.mp3")   // <-- your music file
+        music.autoplayLooped = true
+        music.isPositional = false
+        addChild(music)
+        backgroundMusicNode = music
+
+        // 2) Idle / normal driving loop
         let idle = SKAudioNode(fileNamed: "engine_idle.mp3")
         idle.autoplayLooped = true
         idle.isPositional = false
         addChild(idle)
         engineIdleNode = idle
 
-        // Extra acceleration layer when pressing gas
+        // 3) Extra acceleration layer when pressing gas
         let accel = SKAudioNode(fileNamed: "engine_accel.mp3")
         accel.autoplayLooped = true
         accel.isPositional = false
         addChild(accel)
         engineAccelNode = accel
 
-        // Apply initial volumes based on isSoundOn / paused state
+        // Initial volumes
         refreshAudioVolumes(animated: false)
     }
 
     /// Central place that enforces all volumes based on:
+    /// - isMusicOn
     /// - isSoundOn
     /// - isGamePaused
     /// - gasPressed
     func refreshAudioVolumes(animated: Bool = true) {
-        let duration: TimeInterval = animated ? 0.1 : 0.0
+        let duration: TimeInterval = animated ? 0.15 : 0.0
 
-        // If sound is off: mute everything
+        // --- MUSIC ---
+        if let music = backgroundMusicNode {
+            let targetMusicVolume: Float
+            if !isMusicOn {
+                targetMusicVolume = 0.0
+            } else if isGamePaused {
+                targetMusicVolume = 0.25   // softer in pause menu
+            } else {
+                targetMusicVolume = 0.6    // normal in game
+            }
+            music.run(SKAction.changeVolume(to: targetMusicVolume, duration: duration))
+        }
+
+        // --- ENGINE SOUNDS ---
         guard isSoundOn else {
             engineIdleNode?.run(SKAction.changeVolume(to: 0.0, duration: duration))
             engineAccelNode?.run(SKAction.changeVolume(to: 0.0, duration: duration))
             return
         }
 
-        // Base idle volume (quieter when paused)
+        // Idle volume
         let idleVolume: Float = isGamePaused ? 0.1 : 0.6
         engineIdleNode?.run(SKAction.changeVolume(to: idleVolume, duration: duration))
 
-        // Acceleration layer only when:
-        // - sound on
-        // - gas pressed
-        // - game not paused
+        // Accel only when gas pressed and not paused
         let accelVolume: Float = (!isGamePaused && gasPressed) ? 1.0 : 0.0
         engineAccelNode?.run(SKAction.changeVolume(to: accelVolume, duration: duration))
     }
@@ -570,7 +589,6 @@ class GameScene: SKScene {
         speedLabel.isHidden = paused
         pauseButton.isHidden = paused
 
-        // Recompute volumes with new pause state
         refreshAudioVolumes()
     }
 
@@ -693,14 +711,12 @@ class GameScene: SKScene {
     func toggleMusic() {
         isMusicOn.toggle()
         musicLabel?.text = "MUSIC: \(isMusicOn ? "ON" : "OFF")"
-        // Later you can tie this to background tracks
+        refreshAudioVolumes()
     }
 
     func toggleSound() {
         isSoundOn.toggle()
         soundLabel?.text = "SOUND: \(isSoundOn ? "ON" : "OFF")"
-
-        // Apply mute/unmute immediately
         refreshAudioVolumes()
     }
 
@@ -783,7 +799,7 @@ class GameScene: SKScene {
                                   pressedColor: gasPressedColor,
                                   pressed: true)
 
-                // Optional one-shot "blip" when you first press gas
+                // optional one-shot blip
                 if isSoundOn {
                     run(SKAction.playSoundFileNamed("engine_accel.mp3", waitForCompletion: false))
                 }
@@ -818,7 +834,6 @@ class GameScene: SKScene {
                           pressedColor: brakePressedColor,
                           pressed: false)
 
-        // Recalculate volumes (accel layer should fade out)
         refreshAudioVolumes()
     }
 
