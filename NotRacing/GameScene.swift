@@ -32,6 +32,9 @@ class GameScene: SKScene {
     var nextTerrainX: CGFloat = -1500
     var lastY: CGFloat = 100
 
+    // MARK: - Parallax state
+    var lastVehicleX: CGFloat? = nil    // remembers car X for cloud parallax
+
     // MARK: - Scene lifecycle
     override func didMove(to view: SKView) {
         physicsWorld.gravity = CGVector(dx: 0, dy: -9.8)
@@ -45,6 +48,9 @@ class GameScene: SKScene {
         setupRPMBar()
         setupHUDLabels()
         setupRestartButton()
+
+        // initialise parallax reference
+        lastVehicleX = vehicleBody.position.x
     }
 
     // MARK: - Terrain System
@@ -153,7 +159,6 @@ class GameScene: SKScene {
         guard let bodyPhysics = body.physicsBody,
               let wheelPhysics = wheel.physicsBody else { return }
 
-        // Pin joint — lets wheel rotate
         let pin = SKPhysicsJointPin.joint(
             withBodyA: bodyPhysics,
             bodyB: wheelPhysics,
@@ -162,7 +167,6 @@ class GameScene: SKScene {
         pin.frictionTorque = 0.0
         physicsWorld.add(pin)
 
-        // Limit joint — vertical suspension travel
         let anchorA = CGPoint(
             x: wheel.position.x,
             y: wheel.position.y + 80
@@ -176,7 +180,6 @@ class GameScene: SKScene {
         limit.maxLength = 500000
         physicsWorld.add(limit)
 
-        // Spring joint — soft bouncy suspension
         let spring = SKPhysicsJointSpring.joint(
             withBodyA: bodyPhysics,
             bodyB: wheelPhysics,
@@ -190,10 +193,8 @@ class GameScene: SKScene {
 
     // MARK: - MOTOR LOGIC
     func accelerate() {
-        // smooth realistic torque
         rearWheel.physicsBody?.applyTorque(-200)
 
-        // air tilt
         if !anyWheelOnGround {
             vehicleBody.physicsBody?.applyAngularImpulse(0.0)
         }
@@ -251,36 +252,28 @@ class GameScene: SKScene {
         let halfWidth  = size.width / 2
         let halfHeight = size.height / 2
 
-        // ------------------------------------------------------------------
-        // 1) CONFIGURATION: how many of each element do you want?
-        // ------------------------------------------------------------------
+        // configuration
         let sunConfig = (name: "SunPixel", count: 1)
-
         let cloudConfigs: [(name: String, count: Int)] = [
-            ("Cloud1", 2),   // cloud type 1 -> 2 copies
-            ("Cloud2", 3)    // cloud type 2 -> 3 copies
+            ("Cloud1", 2),
+            ("Cloud2", 3)
         ]
-        // ------------------------------------------------------------------
 
-        // ---- SUN(S) ----
-        if let sunTexture = SKTexture(imageNamed: sunConfig.name) as SKTexture? {
-            for _ in 0..<sunConfig.count {
-                let sun = SKSpriteNode(texture: sunTexture)
-                sun.setScale(0.35)
-
-                // Fixed top-left for now (you can randomize later if you want)
-                sun.position = CGPoint(
-                    x: -halfWidth + sun.size.width / 2 + 40,
-                    y:  halfHeight - sun.size.height / 2 - 40
-                )
-                sun.zPosition = -5
-                cameraNode.addChild(sun)
-                sunNode = sun        // keep reference to one of them if needed
-            }
+        // sun
+        let sunTexture = SKTexture(imageNamed: sunConfig.name)
+        for _ in 0..<sunConfig.count {
+            let sun = SKSpriteNode(texture: sunTexture)
+            sun.setScale(0.35)
+            sun.position = CGPoint(
+                x: -halfWidth + sun.size.width / 2 + 40,
+                y:  halfHeight - sun.size.height / 2 - 40
+            )
+            sun.zPosition = -5
+            cameraNode.addChild(sun)
+            sunNode = sun
         }
 
-        // ---- CLOUDS ----
-        // Band at the top of the screen where clouds appear
+        // clouds
         let bandTop    = halfHeight - 40
         let bandBottom = halfHeight * 0.25
 
@@ -301,7 +294,6 @@ class GameScene: SKScene {
             }
         }
     }
-
 
     // MARK: - Controls
     func setupControls() {
@@ -355,6 +347,48 @@ class GameScene: SKScene {
         }
     }
 
+    // MARK: - Cloud Parallax (based on car movement)
+    func updateCloudsParallax() {
+        guard let body = vehicleBody else { return }
+
+        let currentX = body.position.x
+
+        // first frame: just initialise
+        guard let lastX = lastVehicleX else {
+            lastVehicleX = currentX
+            return
+        }
+
+        let deltaX = currentX - lastX
+        if abs(deltaX) < 0.01 {
+            lastVehicleX = currentX
+            return
+        }
+
+        lastVehicleX = currentX
+
+        let halfWidth  = size.width / 2
+        let halfHeight = size.height / 2
+        let bandTop: CGFloat    = halfHeight - 40
+        let bandBottom: CGFloat = halfHeight * 0.25
+
+        let parallaxFactor: CGFloat = 0.4   // tweak: smaller = slower clouds
+        let offsetX = -deltaX * parallaxFactor
+
+        for cloud in cloudNodes {
+            cloud.position.x += offsetX
+
+            // recycle on both sides so we always have clouds
+            if cloud.position.x < -halfWidth - 200 {
+                cloud.position.x = halfWidth + 200
+                cloud.position.y = CGFloat.random(in: bandBottom...bandTop)
+            } else if cloud.position.x > halfWidth + 200 {
+                cloud.position.x = -halfWidth - 200
+                cloud.position.y = CGFloat.random(in: bandBottom...bandTop)
+            }
+        }
+    }
+
     // MARK: - Touch Input
     override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent?) {
         for touch in touches {
@@ -379,7 +413,6 @@ class GameScene: SKScene {
     // MARK: - Physics Loop
     override func didSimulatePhysics() {
 
-        // Continuous control
         if gasPressed { accelerate() }
         if brakePressed { brake() }
 
@@ -411,5 +444,8 @@ class GameScene: SKScene {
         )
 
         checkAndGenerateTerrain()
+
+        // clouds react to car movement (forward/back)
+        updateCloudsParallax()
     }
 }
