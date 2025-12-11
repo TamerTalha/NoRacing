@@ -10,13 +10,16 @@ class GameScene: SKScene {
     var gasButton: SKSpriteNode!
     var brakeButton: SKSpriteNode!
     var cameraNode: SKCameraNode!
+    var restartButton: SKSpriteNode!
+
+    // MARK: - Sky (Sun + Clouds)
+    var sunNode: SKSpriteNode!
+    var cloudNodes: [SKSpriteNode] = []
 
     // MARK: - Controls
     var gasPressed = false
     var brakePressed = false
     var anyWheelOnGround = false
-    var restartButton: SKSpriteNode!
-
 
     // MARK: - HUD (RPM & Speed)
     var rpmBarBackground: SKSpriteNode!
@@ -29,6 +32,7 @@ class GameScene: SKScene {
     var nextTerrainX: CGFloat = -1500
     var lastY: CGFloat = 100
 
+    // MARK: - Scene lifecycle
     override func didMove(to view: SKView) {
         physicsWorld.gravity = CGVector(dx: 0, dy: -9.8)
         backgroundColor = .cyan
@@ -36,9 +40,11 @@ class GameScene: SKScene {
         createInitialTerrain()
         createVehicle()
         setupCamera()
+        setupSkyDecorations()   // sun + clouds (fixed on screen)
         setupControls()
         setupRPMBar()
         setupHUDLabels()
+        setupRestartButton()
     }
 
     // MARK: - Terrain System
@@ -174,15 +180,13 @@ class GameScene: SKScene {
         let spring = SKPhysicsJointSpring.joint(
             withBodyA: bodyPhysics,
             bodyB: wheelPhysics,
-            anchorA: body.position,   // ✅ use the node’s position
+            anchorA: body.position,
             anchorB: wheel.position
         )
         spring.frequency = 0.00002
         spring.damping = 0.000005
         physicsWorld.add(spring)
     }
-
-
 
     // MARK: - MOTOR LOGIC
     func accelerate() {
@@ -240,6 +244,65 @@ class GameScene: SKScene {
         addChild(cameraNode)
     }
 
+    // MARK: - Sky (Sun + Clouds)
+    func setupSkyDecorations() {
+        guard let cameraNode = camera else { return }
+
+        let halfWidth  = size.width / 2
+        let halfHeight = size.height / 2
+
+        // ------------------------------------------------------------------
+        // 1) CONFIGURATION: how many of each element do you want?
+        // ------------------------------------------------------------------
+        let sunConfig = (name: "SunPixel", count: 1)
+
+        let cloudConfigs: [(name: String, count: Int)] = [
+            ("Cloud1", 2),   // cloud type 1 -> 2 copies
+            ("Cloud2", 3)    // cloud type 2 -> 3 copies
+        ]
+        // ------------------------------------------------------------------
+
+        // ---- SUN(S) ----
+        if let sunTexture = SKTexture(imageNamed: sunConfig.name) as SKTexture? {
+            for _ in 0..<sunConfig.count {
+                let sun = SKSpriteNode(texture: sunTexture)
+                sun.setScale(0.35)
+
+                // Fixed top-left for now (you can randomize later if you want)
+                sun.position = CGPoint(
+                    x: -halfWidth + sun.size.width / 2 + 40,
+                    y:  halfHeight - sun.size.height / 2 - 40
+                )
+                sun.zPosition = -5
+                cameraNode.addChild(sun)
+                sunNode = sun        // keep reference to one of them if needed
+            }
+        }
+
+        // ---- CLOUDS ----
+        // Band at the top of the screen where clouds appear
+        let bandTop    = halfHeight - 40
+        let bandBottom = halfHeight * 0.25
+
+        for config in cloudConfigs {
+            let texture = SKTexture(imageNamed: config.name)
+
+            for _ in 0..<config.count {
+                let cloud = SKSpriteNode(texture: texture)
+                cloud.setScale(0.40)
+                cloud.zPosition = (sunNode?.zPosition ?? 0) + 1
+
+                let randomX = CGFloat.random(in: -halfWidth...halfWidth)
+                let randomY = CGFloat.random(in: bandBottom...bandTop)
+                cloud.position = CGPoint(x: randomX, y: randomY)
+
+                cameraNode.addChild(cloud)
+                cloudNodes.append(cloud)
+            }
+        }
+    }
+
+
     // MARK: - Controls
     func setupControls() {
         let size = CGSize(width: 160, height: 160)
@@ -255,8 +318,8 @@ class GameScene: SKScene {
         brakeButton.alpha = 0.4
         brakeButton.position = CGPoint(x: -700, y: -500)
         cameraNode.addChild(brakeButton)
-
     }
+
     func setupRestartButton() {
         guard let cameraNode = camera else { return }
 
@@ -268,13 +331,11 @@ class GameScene: SKScene {
         restartButton.alpha = 0.9
         restartButton.zPosition = 9999
 
-        // Place EXACTLY in the top-right corner
         restartButton.position = CGPoint(
             x: halfWidth - 100,
             y: halfHeight - 100
         )
 
-        // Giant icon so you can't miss it
         let icon = SKLabelNode(text: "⟳")
         icon.fontSize = 100
         icon.fontColor = .white
@@ -283,16 +344,16 @@ class GameScene: SKScene {
 
         cameraNode.addChild(restartButton)
     }
+
     func restartGame() {
         if let view = self.view {
             let newScene = GameScene(size: self.size)
             newScene.scaleMode = self.scaleMode
-            
+
             let transition = SKTransition.fade(withDuration: 0.3)
             view.presentScene(newScene, transition: transition)
         }
     }
-
 
     // MARK: - Touch Input
     override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent?) {
@@ -310,7 +371,6 @@ class GameScene: SKScene {
         }
     }
 
-
     override func touchesEnded(_ touches: Set<UITouch>, with event: UIEvent?) {
         gasPressed = false
         brakePressed = false
@@ -325,31 +385,23 @@ class GameScene: SKScene {
 
         // ----- UPDATE RPM + BAR -----
         var smoothedRPM: CGFloat = 0
-        // ----- SMOOTH RPM -----
+
         if let rear = rearWheel.physicsBody {
-            // Convert angular velocity → RPM
             let targetRPM = abs(rear.angularVelocity) * 60 / (2 * .pi)
-
-            // Limit unrealistic RPM
             let clampedRPM = min(targetRPM, 300)
-
-            // Smooth interpolation
             smoothedRPM = smoothedRPM * 0.90 + clampedRPM * 0.10
 
             let normalized = smoothedRPM / 300
-
             rpmBarFill.size.width = normalized * 800
 
             rpmLabel.text = "RPM: \(Int(smoothedRPM))"
         }
 
-
         // ----- REALISTIC SPEED -----
         if let body = vehicleBody.physicsBody {
-            let horizontalSpeed = abs(body.velocity.dx)       // only X speed
-            let kmh = Int(horizontalSpeed * 3.6)              // convert m/s → km/h
-
-            speedLabel.text = "\(kmh/200) km/h"
+            let horizontalSpeed = abs(body.velocity.dx)
+            let kmh = Int(horizontalSpeed * 3.6)
+            speedLabel.text = "\(kmh / 200) km/h"
         }
 
         // Camera follows
