@@ -1,5 +1,6 @@
 import SpriteKit
 import GameplayKit
+import AVFoundation
 
 class GameScene: SKScene {
 
@@ -46,6 +47,10 @@ class GameScene: SKScene {
     var musicLabel: SKLabelNode?
     var soundLabel: SKLabelNode?
 
+    // MARK: - Engine / driving audio
+    var engineIdleNode: SKAudioNode?
+    var engineAccelNode: SKAudioNode?
+
     // MARK: - Pedal colors (for hover/pressed effect)
     let gasBaseColor   = UIColor(red: 0.15, green: 0.80, blue: 0.45, alpha: 1.0)
     let gasPressedColor = UIColor(red: 0.45, green: 1.00, blue: 0.70, alpha: 1.0)
@@ -56,7 +61,7 @@ class GameScene: SKScene {
     // MARK: - Scene lifecycle
     override func didMove(to view: SKView) {
         physicsWorld.gravity = CGVector(dx: 0, dy: -9.8)
-        backgroundColor = UIColor.fromHex("#98b7ff")   // updated background color
+        backgroundColor = UIColor.fromHex("#7C9AE0")
 
         createInitialTerrain()
         createVehicle()
@@ -66,8 +71,55 @@ class GameScene: SKScene {
         setupRPMBar()
         setupHUDLabels()
         setupPauseButton()
+        setupAudio()          // sounds
 
         lastVehicleX = vehicleBody.position.x
+    }
+
+    // MARK: - Audio setup
+    func setupAudio() {
+        // Idle / normal driving loop
+        let idle = SKAudioNode(fileNamed: "engine_idle.mp3")
+        idle.autoplayLooped = true
+        idle.isPositional = false
+        addChild(idle)
+        engineIdleNode = idle
+
+        // Extra acceleration layer when pressing gas
+        let accel = SKAudioNode(fileNamed: "engine_accel.mp3")
+        accel.autoplayLooped = true
+        accel.isPositional = false
+        addChild(accel)
+        engineAccelNode = accel
+
+        // Apply initial volumes based on isSoundOn / paused state
+        refreshAudioVolumes(animated: false)
+    }
+
+    /// Central place that enforces all volumes based on:
+    /// - isSoundOn
+    /// - isGamePaused
+    /// - gasPressed
+    func refreshAudioVolumes(animated: Bool = true) {
+        let duration: TimeInterval = animated ? 0.1 : 0.0
+
+        // If sound is off: mute everything
+        guard isSoundOn else {
+            engineIdleNode?.run(SKAction.changeVolume(to: 0.0, duration: duration))
+            engineAccelNode?.run(SKAction.changeVolume(to: 0.0, duration: duration))
+            return
+        }
+
+        // Base idle volume (quieter when paused)
+        let idleVolume: Float = isGamePaused ? 0.1 : 0.6
+        engineIdleNode?.run(SKAction.changeVolume(to: idleVolume, duration: duration))
+
+        // Acceleration layer only when:
+        // - sound on
+        // - gas pressed
+        // - game not paused
+        let accelVolume: Float = (!isGamePaused && gasPressed) ? 1.0 : 0.0
+        engineAccelNode?.run(SKAction.changeVolume(to: accelVolume, duration: duration))
     }
 
     // MARK: - Terrain System
@@ -312,7 +364,6 @@ class GameScene: SKScene {
         let halfHeight = size.height / 2
         let pedalBottomY = -halfHeight + 200
 
-        // GAS – vertical, pixel-y block on the right
         gasButton = makePixelPedal(
             size: CGSize(width: 190, height: 260),
             baseColor: gasBaseColor,
@@ -325,7 +376,6 @@ class GameScene: SKScene {
         gasButton.position = CGPoint(x: halfWidth - 220, y: pedalBottomY)
         cameraNode.addChild(gasButton)
 
-        // BRAKE – horizontal, pixel-y block on the left
         brakeButton = makePixelPedal(
             size: CGSize(width: 260, height: 170),
             baseColor: brakeBaseColor,
@@ -337,7 +387,6 @@ class GameScene: SKScene {
         )
         brakeButton.position = CGPoint(x: -halfWidth + 260, y: pedalBottomY)
 
-        // Add pixel arrow on brake (reverse hint)
         let arrowPixels = SKNode()
         arrowPixels.name = "brake"
         let pixelSize: CGFloat = 12
@@ -366,7 +415,6 @@ class GameScene: SKScene {
         updatePedalVisual(button: brakeButton, baseColor: brakeBaseColor, pressedColor: brakePressedColor, pressed: false)
     }
 
-    // Build a chunky pixel-looking pedal
     func makePixelPedal(size: CGSize,
                         baseColor: UIColor,
                         labelText: String,
@@ -521,6 +569,9 @@ class GameScene: SKScene {
         rpmLabel.isHidden = paused
         speedLabel.isHidden = paused
         pauseButton.isHidden = paused
+
+        // Recompute volumes with new pause state
+        refreshAudioVolumes()
     }
 
     // MARK: - Pause Menu
@@ -642,11 +693,15 @@ class GameScene: SKScene {
     func toggleMusic() {
         isMusicOn.toggle()
         musicLabel?.text = "MUSIC: \(isMusicOn ? "ON" : "OFF")"
+        // Later you can tie this to background tracks
     }
 
     func toggleSound() {
         isSoundOn.toggle()
         soundLabel?.text = "SOUND: \(isSoundOn ? "ON" : "OFF")"
+
+        // Apply mute/unmute immediately
+        refreshAudioVolumes()
     }
 
     func restartGame() {
@@ -727,12 +782,21 @@ class GameScene: SKScene {
                                   baseColor: gasBaseColor,
                                   pressedColor: gasPressedColor,
                                   pressed: true)
+
+                // Optional one-shot "blip" when you first press gas
+                if isSoundOn {
+                    run(SKAction.playSoundFileNamed("engine_accel.mp3", waitForCompletion: false))
+                }
+
+                refreshAudioVolumes()
+
             case "brake":
                 brakePressed = true
                 updatePedalVisual(button: brakeButton,
                                   baseColor: brakeBaseColor,
                                   pressedColor: brakePressedColor,
                                   pressed: true)
+
             case "pauseButton":
                 showPauseMenu()
             default:
@@ -753,6 +817,9 @@ class GameScene: SKScene {
                           baseColor: brakeBaseColor,
                           pressedColor: brakePressedColor,
                           pressed: false)
+
+        // Recalculate volumes (accel layer should fade out)
+        refreshAudioVolumes()
     }
 
     override func touchesCancelled(_ touches: Set<UITouch>, with event: UIEvent?) {
