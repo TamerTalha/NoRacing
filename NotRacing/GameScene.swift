@@ -56,7 +56,7 @@ class GameScene: SKScene {
     // MARK: - Scene lifecycle
     override func didMove(to view: SKView) {
         physicsWorld.gravity = CGVector(dx: 0, dy: -9.8)
-        backgroundColor = .cyan
+        backgroundColor = UIColor.fromHex("#98b7ff")   // updated background color
 
         createInitialTerrain()
         createVehicle()
@@ -352,7 +352,6 @@ class GameScene: SKScene {
             arrowPixels.addChild(node)
         }
 
-        // Simple arrow pattern (grid-ish)
         let arrowCoords: [(Int, Int)] = [
             (2,0),(1,1),(1,0),(1,-1),
             (0,1),(0,0),(0,-1),
@@ -363,7 +362,6 @@ class GameScene: SKScene {
         brakeButton.addChild(arrowPixels)
         cameraNode.addChild(brakeButton)
 
-        // Start visuals
         updatePedalVisual(button: gasButton, baseColor: gasBaseColor, pressedColor: gasPressedColor, pressed: false)
         updatePedalVisual(button: brakeButton, baseColor: brakeBaseColor, pressedColor: brakePressedColor, pressed: false)
     }
@@ -382,7 +380,6 @@ class GameScene: SKScene {
         pedal.zPosition = 200
         pedal.zRotation = rotationDeg * .pi / 180
 
-        // Outer “pixel frame”: 4 thick bars
         let borderThickness: CGFloat = 10
         let borderColor = UIColor(white: 0.1, alpha: 1.0)
 
@@ -394,7 +391,6 @@ class GameScene: SKScene {
             pedal.addChild(node)
         }
 
-        // Top, bottom, left, right bars
         addBorderRect(rectSize: CGSize(width: size.width, height: borderThickness),
                       pos: CGPoint(x: 0, y: size.height/2 - borderThickness/2))
         addBorderRect(rectSize: CGSize(width: size.width, height: borderThickness),
@@ -404,8 +400,7 @@ class GameScene: SKScene {
         addBorderRect(rectSize: CGSize(width: borderThickness, height: size.height),
                       pos: CGPoint(x:  size.width/2 - borderThickness/2, y: 0))
 
-        // Inner panel (slightly inset, darker → fake 8-bit depth)
-        let innerColor = baseColor.withAlphaComponent(1.0).withBrightness(innerBrightness)
+        let innerColor = baseColor.withBrightness(innerBrightness)
         let inner = SKSpriteNode(color: innerColor,
                                  size: CGSize(width: size.width - 2*borderThickness,
                                               height: size.height - 2*borderThickness))
@@ -413,7 +408,6 @@ class GameScene: SKScene {
         inner.name = name
         pedal.addChild(inner)
 
-        // “Bolts” in corners (small squares)
         let boltSize: CGFloat = 16
         let boltColor = UIColor(white: 1.0, alpha: 0.7)
         func addBolt(offsetX: CGFloat, offsetY: CGFloat) {
@@ -431,7 +425,6 @@ class GameScene: SKScene {
         addBolt(offsetX: -bx, offsetY: -by)
         addBolt(offsetX:  bx, offsetY: -by)
 
-        // Pixel stripes on inner panel
         let stripeCount = 4
         let pixelStripeHeight: CGFloat = 14
         for i in 0..<stripeCount {
@@ -447,7 +440,6 @@ class GameScene: SKScene {
             inner.addChild(stripe)
         }
 
-        // Label
         let label = SKLabelNode(fontNamed: "Courier-Bold")
         label.text = labelText
         label.fontSize = 30
@@ -803,11 +795,28 @@ class GameScene: SKScene {
     }
 }
 
-// Small helper to darken colors for inner panels
+// Small helpers for color
 private extension UIColor {
     func withBrightness(_ factor: CGFloat) -> UIColor {
         var r: CGFloat = 0, g: CGFloat = 0, b: CGFloat = 0, a: CGFloat = 0
         getRed(&r, green: &g, blue: &b, alpha: &a)
         return UIColor(red: r * factor, green: g * factor, blue: b * factor, alpha: a)
+    }
+
+    static func fromHex(_ hex: String) -> UIColor {
+        var cleaned = hex.trimmingCharacters(in: .whitespacesAndNewlines).uppercased()
+        if cleaned.hasPrefix("#") { cleaned.removeFirst() }
+
+        guard cleaned.count == 6 else { return .white }
+
+        let rString = String(cleaned.prefix(2))
+        let gString = String(cleaned.dropFirst(2).prefix(2))
+        let bString = String(cleaned.dropFirst(4).prefix(2))
+
+        let r = CGFloat(Int(rString, radix: 16) ?? 0) / 255.0
+        let g = CGFloat(Int(gString, radix: 16) ?? 0) / 255.0
+        let b = CGFloat(Int(bString, radix: 16) ?? 0) / 255.0
+
+        return UIColor(red: r, green: g, blue: b, alpha: 1.0)
     }
 }
