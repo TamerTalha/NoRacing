@@ -46,6 +46,13 @@ class GameScene: SKScene {
     var musicLabel: SKLabelNode?
     var soundLabel: SKLabelNode?
 
+    // MARK: - Pedal colors (for hover/pressed effect)
+    let gasBaseColor   = UIColor(red: 0.15, green: 0.80, blue: 0.45, alpha: 1.0)
+    let gasPressedColor = UIColor(red: 0.45, green: 1.00, blue: 0.70, alpha: 1.0)
+
+    let brakeBaseColor   = UIColor(red: 0.80, green: 0.25, blue: 0.25, alpha: 1.0)
+    let brakePressedColor = UIColor(red: 1.00, green: 0.55, blue: 0.40, alpha: 1.0)
+
     // MARK: - Scene lifecycle
     override func didMove(to view: SKView) {
         physicsWorld.gravity = CGVector(dx: 0, dy: -9.8)
@@ -297,23 +304,182 @@ class GameScene: SKScene {
         }
     }
 
-    // MARK: - Controls
+    // MARK: - Controls (pixel-art pedals)
     func setupControls() {
-        let size = CGSize(width: 160, height: 160)
+        guard let cameraNode = camera else { return }
 
-        gasButton = SKSpriteNode(color: .green, size: size)
-        gasButton.name = "gas"
-        gasButton.alpha = 0.4
-        gasButton.position = CGPoint(x: 700, y: -500)
-        gasButton.zPosition = 200
+        let halfWidth  = size.width / 2
+        let halfHeight = size.height / 2
+        let pedalBottomY = -halfHeight + 200
+
+        // GAS – vertical, pixel-y block on the right
+        gasButton = makePixelPedal(
+            size: CGSize(width: 190, height: 260),
+            baseColor: gasBaseColor,
+            labelText: "GAS",
+            labelOffsetY: -90,
+            innerBrightness: 0.75,
+            rotationDeg: -10,
+            name: "gas"
+        )
+        gasButton.position = CGPoint(x: halfWidth - 220, y: pedalBottomY)
         cameraNode.addChild(gasButton)
 
-        brakeButton = SKSpriteNode(color: .red, size: size)
-        brakeButton.name = "brake"
-        brakeButton.alpha = 0.4
-        brakeButton.position = CGPoint(x: -700, y: -500)
-        brakeButton.zPosition = 200
+        // BRAKE – horizontal, pixel-y block on the left
+        brakeButton = makePixelPedal(
+            size: CGSize(width: 260, height: 170),
+            baseColor: brakeBaseColor,
+            labelText: "BRAKE",
+            labelOffsetY: -60,
+            innerBrightness: 0.65,
+            rotationDeg: 0,
+            name: "brake"
+        )
+        brakeButton.position = CGPoint(x: -halfWidth + 260, y: pedalBottomY)
+
+        // Add pixel arrow on brake (reverse hint)
+        let arrowPixels = SKNode()
+        arrowPixels.name = "brake"
+        let pixelSize: CGFloat = 12
+
+        func addArrowPixel(x: Int, y: Int) {
+            let node = SKSpriteNode(color: UIColor(white: 1.0, alpha: 0.25),
+                                    size: CGSize(width: pixelSize, height: pixelSize))
+            node.position = CGPoint(x: CGFloat(x) * pixelSize,
+                                    y: CGFloat(y) * pixelSize)
+            node.zPosition = 4
+            node.name = "brake"
+            arrowPixels.addChild(node)
+        }
+
+        // Simple arrow pattern (grid-ish)
+        let arrowCoords: [(Int, Int)] = [
+            (2,0),(1,1),(1,0),(1,-1),
+            (0,1),(0,0),(0,-1),
+            (-1,1),(-1,0),(-1,-1)
+        ]
+        for (x,y) in arrowCoords { addArrowPixel(x: x, y: y) }
+
+        brakeButton.addChild(arrowPixels)
         cameraNode.addChild(brakeButton)
+
+        // Start visuals
+        updatePedalVisual(button: gasButton, baseColor: gasBaseColor, pressedColor: gasPressedColor, pressed: false)
+        updatePedalVisual(button: brakeButton, baseColor: brakeBaseColor, pressedColor: brakePressedColor, pressed: false)
+    }
+
+    // Build a chunky pixel-looking pedal
+    func makePixelPedal(size: CGSize,
+                        baseColor: UIColor,
+                        labelText: String,
+                        labelOffsetY: CGFloat,
+                        innerBrightness: CGFloat,
+                        rotationDeg: CGFloat,
+                        name: String) -> SKSpriteNode {
+
+        let pedal = SKSpriteNode(color: baseColor, size: size)
+        pedal.name = name
+        pedal.zPosition = 200
+        pedal.zRotation = rotationDeg * .pi / 180
+
+        // Outer “pixel frame”: 4 thick bars
+        let borderThickness: CGFloat = 10
+        let borderColor = UIColor(white: 0.1, alpha: 1.0)
+
+        func addBorderRect(rectSize: CGSize, pos: CGPoint) {
+            let node = SKSpriteNode(color: borderColor, size: rectSize)
+            node.position = pos
+            node.zPosition = 1
+            node.name = name
+            pedal.addChild(node)
+        }
+
+        // Top, bottom, left, right bars
+        addBorderRect(rectSize: CGSize(width: size.width, height: borderThickness),
+                      pos: CGPoint(x: 0, y: size.height/2 - borderThickness/2))
+        addBorderRect(rectSize: CGSize(width: size.width, height: borderThickness),
+                      pos: CGPoint(x: 0, y: -size.height/2 + borderThickness/2))
+        addBorderRect(rectSize: CGSize(width: borderThickness, height: size.height),
+                      pos: CGPoint(x: -size.width/2 + borderThickness/2, y: 0))
+        addBorderRect(rectSize: CGSize(width: borderThickness, height: size.height),
+                      pos: CGPoint(x:  size.width/2 - borderThickness/2, y: 0))
+
+        // Inner panel (slightly inset, darker → fake 8-bit depth)
+        let innerColor = baseColor.withAlphaComponent(1.0).withBrightness(innerBrightness)
+        let inner = SKSpriteNode(color: innerColor,
+                                 size: CGSize(width: size.width - 2*borderThickness,
+                                              height: size.height - 2*borderThickness))
+        inner.zPosition = 2
+        inner.name = name
+        pedal.addChild(inner)
+
+        // “Bolts” in corners (small squares)
+        let boltSize: CGFloat = 16
+        let boltColor = UIColor(white: 1.0, alpha: 0.7)
+        func addBolt(offsetX: CGFloat, offsetY: CGFloat) {
+            let bolt = SKSpriteNode(color: boltColor,
+                                    size: CGSize(width: boltSize, height: boltSize))
+            bolt.position = CGPoint(x: offsetX, y: offsetY)
+            bolt.zPosition = 3
+            bolt.name = name
+            pedal.addChild(bolt)
+        }
+        let bx = size.width/2 - borderThickness - boltSize/2 - 6
+        let by = size.height/2 - borderThickness - boltSize/2 - 6
+        addBolt(offsetX: -bx, offsetY:  by)
+        addBolt(offsetX:  bx, offsetY:  by)
+        addBolt(offsetX: -bx, offsetY: -by)
+        addBolt(offsetX:  bx, offsetY: -by)
+
+        // Pixel stripes on inner panel
+        let stripeCount = 4
+        let pixelStripeHeight: CGFloat = 14
+        for i in 0..<stripeCount {
+            let stripe = SKSpriteNode(
+                color: UIColor(white: 1.0, alpha: 0.15),
+                size: CGSize(width: inner.size.width * 0.78, height: pixelStripeHeight)
+            )
+            stripe.anchorPoint = CGPoint(x: 0.5, y: 0.5)
+            let offset = CGFloat(i - stripeCount/2) * (pixelStripeHeight + 6)
+            stripe.position = CGPoint(x: 0, y: offset)
+            stripe.zPosition = 3
+            stripe.name = name
+            inner.addChild(stripe)
+        }
+
+        // Label
+        let label = SKLabelNode(fontNamed: "Courier-Bold")
+        label.text = labelText
+        label.fontSize = 30
+        label.fontColor = .white
+        label.verticalAlignmentMode = .center
+        label.position = CGPoint(x: 0, y: labelOffsetY)
+        label.zPosition = 4
+        label.name = name
+        pedal.addChild(label)
+
+        return pedal
+    }
+
+    // MARK: - Pedal visual helper
+    func updatePedalVisual(button: SKSpriteNode?,
+                           baseColor: UIColor,
+                           pressedColor: UIColor,
+                           pressed: Bool) {
+
+        guard let button = button else { return }
+
+        let targetColor = pressed ? pressedColor : baseColor
+        let targetScale: CGFloat = pressed ? 0.92 : 1.0
+
+        let colorAction = SKAction.colorize(with: targetColor,
+                                            colorBlendFactor: 1.0,
+                                            duration: 0.08)
+        let scaleAction = SKAction.scale(to: targetScale, duration: 0.08)
+        let group = SKAction.group([colorAction, scaleAction])
+
+        button.removeAction(forKey: "pedalVisual")
+        button.run(group, withKey: "pedalVisual")
     }
 
     // MARK: - Pause Button UI
@@ -371,7 +537,6 @@ class GameScene: SKScene {
 
         applyPauseState(true)
 
-        // Dark overlay
         let overlay = SKSpriteNode(
             color: .black,
             size: CGSize(width: self.size.width * 2, height: self.size.height * 2)
@@ -384,7 +549,6 @@ class GameScene: SKScene {
         cameraNode.addChild(overlay)
         pauseOverlay = overlay
 
-        // Panel
         let panelSize = CGSize(width: 700, height: 600)
         let panelColor = UIColor(red: 30/255, green: 30/255, blue: 60/255, alpha: 1)
 
@@ -399,7 +563,6 @@ class GameScene: SKScene {
         border.zPosition = 1
         panel.addChild(border)
 
-        // Title
         let title = SKLabelNode(fontNamed: "Courier-Bold")
         title.text = "PAUSED"
         title.fontSize = 64
@@ -408,7 +571,6 @@ class GameScene: SKScene {
         title.zPosition = 2
         panel.addChild(title)
 
-        // Buttons
         let buttonWidth: CGFloat = 520
         let buttonHeight: CGFloat = 80
         let verticalSpacing: CGFloat = 26
@@ -441,7 +603,6 @@ class GameScene: SKScene {
             return btn
         }
 
-        // Nicely spaced vertical layout
         let resumeButtonY: CGFloat  = title.position.y - 80.0
         let restartButtonY: CGFloat = resumeButtonY - (buttonHeight + verticalSpacing)
         let musicButtonY: CGFloat   = restartButtonY - (buttonHeight + verticalSpacing)
@@ -489,13 +650,11 @@ class GameScene: SKScene {
     func toggleMusic() {
         isMusicOn.toggle()
         musicLabel?.text = "MUSIC: \(isMusicOn ? "ON" : "OFF")"
-        // placeholder for real audio logic
     }
 
     func toggleSound() {
         isSoundOn.toggle()
         soundLabel?.text = "SOUND: \(isSoundOn ? "ON" : "OFF")"
-        // placeholder for real audio logic
     }
 
     func restartGame() {
@@ -572,8 +731,16 @@ class GameScene: SKScene {
             switch targetName {
             case "gas":
                 gasPressed = true
+                updatePedalVisual(button: gasButton,
+                                  baseColor: gasBaseColor,
+                                  pressedColor: gasPressedColor,
+                                  pressed: true)
             case "brake":
                 brakePressed = true
+                updatePedalVisual(button: brakeButton,
+                                  baseColor: brakeBaseColor,
+                                  pressedColor: brakePressedColor,
+                                  pressed: true)
             case "pauseButton":
                 showPauseMenu()
             default:
@@ -585,6 +752,19 @@ class GameScene: SKScene {
     override func touchesEnded(_ touches: Set<UITouch>, with event: UIEvent?) {
         gasPressed = false
         brakePressed = false
+
+        updatePedalVisual(button: gasButton,
+                          baseColor: gasBaseColor,
+                          pressedColor: gasPressedColor,
+                          pressed: false)
+        updatePedalVisual(button: brakeButton,
+                          baseColor: brakeBaseColor,
+                          pressedColor: brakePressedColor,
+                          pressed: false)
+    }
+
+    override func touchesCancelled(_ touches: Set<UITouch>, with event: UIEvent?) {
+        touchesEnded(touches, with: event)
     }
 
     // MARK: - Physics Loop
@@ -620,5 +800,14 @@ class GameScene: SKScene {
 
         checkAndGenerateTerrain()
         updateCloudsParallax()
+    }
+}
+
+// Small helper to darken colors for inner panels
+private extension UIColor {
+    func withBrightness(_ factor: CGFloat) -> UIColor {
+        var r: CGFloat = 0, g: CGFloat = 0, b: CGFloat = 0, a: CGFloat = 0
+        getRed(&r, green: &g, blue: &b, alpha: &a)
+        return UIColor(red: r * factor, green: g * factor, blue: b * factor, alpha: a)
     }
 }
