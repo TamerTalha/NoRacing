@@ -10,7 +10,6 @@ class GameScene: SKScene {
     var gasButton: SKSpriteNode!
     var brakeButton: SKSpriteNode!
     var cameraNode: SKCameraNode!
-    var restartButton: SKSpriteNode!
 
     // MARK: - Sky (Sun + Clouds)
     var sunNode: SKSpriteNode!
@@ -32,8 +31,20 @@ class GameScene: SKScene {
     var nextTerrainX: CGFloat = -1500
     var lastY: CGFloat = 100
 
-    // MARK: - Parallax state
-    var lastVehicleX: CGFloat? = nil    // remembers car X for cloud parallax
+    // MARK: - Parallax state (for clouds)
+    var lastVehicleX: CGFloat? = nil
+
+    // MARK: - Pause / Menu UI
+    var isGamePaused = false
+    var pauseButton: SKSpriteNode!
+    var pauseOverlay: SKSpriteNode?
+    var pausePanel: SKSpriteNode?
+
+    // Audio toggles (placeholders)
+    var isMusicOn = true
+    var isSoundOn = true
+    var musicLabel: SKLabelNode?
+    var soundLabel: SKLabelNode?
 
     // MARK: - Scene lifecycle
     override func didMove(to view: SKView) {
@@ -43,13 +54,12 @@ class GameScene: SKScene {
         createInitialTerrain()
         createVehicle()
         setupCamera()
-        setupSkyDecorations()   // sun + clouds (fixed on screen)
+        setupSkyDecorations()
         setupControls()
         setupRPMBar()
         setupHUDLabels()
-        setupRestartButton()
+        setupPauseButton()
 
-        // initialise parallax reference
         lastVehicleX = vehicleBody.position.x
     }
 
@@ -132,7 +142,6 @@ class GameScene: SKScene {
         let wheelRadius: CGFloat = 80
         let wheelSpacing: CGFloat = 160
 
-        // --- Wheels ---
         rearWheel = createWheel(radius: wheelRadius)
         rearWheel.position = CGPoint(x: 0, y: 830)
         addChild(rearWheel)
@@ -141,7 +150,6 @@ class GameScene: SKScene {
         frontWheel.position = CGPoint(x: wheelSpacing * 2, y: 830)
         addChild(frontWheel)
 
-        // --- Car body ---
         vehicleBody = SKSpriteNode(color: .red, size: CGSize(width: 400, height: 160))
         vehicleBody.position = CGPoint(x: wheelSpacing, y: 800 + 150)
         vehicleBody.physicsBody = SKPhysicsBody(rectangleOf: vehicleBody.size)
@@ -150,7 +158,6 @@ class GameScene: SKScene {
         vehicleBody.physicsBody?.applyForce(CGVector(dx: 0, dy: -5))
         addChild(vehicleBody)
 
-        // --- Suspension for both wheels ---
         addSuspension(body: vehicleBody, wheel: rearWheel, wheelOffsetX: -wheelSpacing)
         addSuspension(body: vehicleBody, wheel: frontWheel, wheelOffsetX: wheelSpacing)
     }
@@ -194,7 +201,6 @@ class GameScene: SKScene {
     // MARK: - MOTOR LOGIC
     func accelerate() {
         rearWheel.physicsBody?.applyTorque(-200)
-
         if !anyWheelOnGround {
             vehicleBody.physicsBody?.applyAngularImpulse(0.0)
         }
@@ -202,7 +208,6 @@ class GameScene: SKScene {
 
     func brake() {
         rearWheel.physicsBody?.applyTorque(400)
-
         if !anyWheelOnGround {
             vehicleBody.physicsBody?.applyAngularImpulse(-0.0)
         }
@@ -252,14 +257,12 @@ class GameScene: SKScene {
         let halfWidth  = size.width / 2
         let halfHeight = size.height / 2
 
-        // configuration
         let sunConfig = (name: "SunPixel", count: 1)
         let cloudConfigs: [(name: String, count: Int)] = [
             ("Cloud1", 2),
             ("Cloud2", 3)
         ]
 
-        // sun
         let sunTexture = SKTexture(imageNamed: sunConfig.name)
         for _ in 0..<sunConfig.count {
             let sun = SKSpriteNode(texture: sunTexture)
@@ -273,7 +276,6 @@ class GameScene: SKScene {
             sunNode = sun
         }
 
-        // clouds
         let bandTop    = halfHeight - 40
         let bandBottom = halfHeight * 0.25
 
@@ -303,45 +305,203 @@ class GameScene: SKScene {
         gasButton.name = "gas"
         gasButton.alpha = 0.4
         gasButton.position = CGPoint(x: 700, y: -500)
+        gasButton.zPosition = 200
         cameraNode.addChild(gasButton)
 
         brakeButton = SKSpriteNode(color: .red, size: size)
         brakeButton.name = "brake"
         brakeButton.alpha = 0.4
         brakeButton.position = CGPoint(x: -700, y: -500)
+        brakeButton.zPosition = 200
         cameraNode.addChild(brakeButton)
     }
 
-    func setupRestartButton() {
+    // MARK: - Pause Button UI
+    func setupPauseButton() {
         guard let cameraNode = camera else { return }
 
-        let halfWidth = size.width / 2
+        let halfWidth  = size.width / 2
         let halfHeight = size.height / 2
 
-        restartButton = SKSpriteNode(color: .blue, size: CGSize(width: 150, height: 150))
-        restartButton.name = "restart"
-        restartButton.alpha = 0.9
-        restartButton.zPosition = 9999
+        pauseButton = SKSpriteNode(color: .clear, size: CGSize(width: 120, height: 120))
+        pauseButton.name = "pauseButton"
+        pauseButton.zPosition = 300
 
-        restartButton.position = CGPoint(
-            x: halfWidth - 100,
-            y: halfHeight - 100
+        pauseButton.position = CGPoint(
+            x: halfWidth - 120,
+            y: halfHeight - 120
         )
 
-        let icon = SKLabelNode(text: "⟳")
-        icon.fontSize = 100
-        icon.fontColor = .white
-        icon.verticalAlignmentMode = .center
-        restartButton.addChild(icon)
+        let frameNode = SKShapeNode(rectOf: pauseButton.size)
+        frameNode.strokeColor = .white
+        frameNode.lineWidth = 6
+        frameNode.fillColor = UIColor(white: 0.1, alpha: 0.6)
+        frameNode.zPosition = 1
+        frameNode.name = "pauseButton"
+        pauseButton.addChild(frameNode)
 
-        cameraNode.addChild(restartButton)
+        let label = SKLabelNode(fontNamed: "Courier-Bold")
+        label.text = "II"
+        label.fontSize = 60
+        label.fontColor = .white
+        label.verticalAlignmentMode = .center
+        label.zPosition = 2
+        label.name = "pauseButton"
+        pauseButton.addChild(label)
+
+        cameraNode.addChild(pauseButton)
+    }
+
+    // MARK: - Pause helpers
+    func applyPauseState(_ paused: Bool) {
+        isGamePaused = paused
+        physicsWorld.speed = paused ? 0 : 1
+
+        gasButton.isHidden = paused
+        brakeButton.isHidden = paused
+        rpmBarBackground.isHidden = paused
+        rpmLabel.isHidden = paused
+        speedLabel.isHidden = paused
+        pauseButton.isHidden = paused
+    }
+
+    // MARK: - Pause Menu
+    func showPauseMenu() {
+        guard !isGamePaused, let cameraNode = camera else { return }
+
+        applyPauseState(true)
+
+        // Dark overlay
+        let overlay = SKSpriteNode(
+            color: .black,
+            size: CGSize(width: self.size.width * 2, height: self.size.height * 2)
+        )
+        overlay.name = "pauseOverlay"
+        overlay.alpha = 0.6
+        overlay.zPosition = 10_000
+        overlay.position = .zero
+        overlay.anchorPoint = CGPoint(x: 0.5, y: 0.5)
+        cameraNode.addChild(overlay)
+        pauseOverlay = overlay
+
+        // Panel
+        let panelSize = CGSize(width: 700, height: 600)
+        let panelColor = UIColor(red: 30/255, green: 30/255, blue: 60/255, alpha: 1)
+
+        let panel = SKSpriteNode(color: panelColor, size: panelSize)
+        panel.name = "pausePanel"
+        panel.zPosition = 10_100
+        panel.position = .zero
+
+        let border = SKShapeNode(rectOf: panelSize)
+        border.strokeColor = .white
+        border.lineWidth = 8
+        border.zPosition = 1
+        panel.addChild(border)
+
+        // Title
+        let title = SKLabelNode(fontNamed: "Courier-Bold")
+        title.text = "PAUSED"
+        title.fontSize = 64
+        title.fontColor = .white
+        title.position = CGPoint(x: 0, y: panelSize.height / 2 - 90)
+        title.zPosition = 2
+        panel.addChild(title)
+
+        // Buttons
+        let buttonWidth: CGFloat = 520
+        let buttonHeight: CGFloat = 80
+        let verticalSpacing: CGFloat = 26
+
+        func makeButton(name: String, text: String, y: CGFloat) -> SKSpriteNode {
+            let btn = SKSpriteNode(
+                color: UIColor(white: 0.15, alpha: 0.9),
+                size: CGSize(width: buttonWidth, height: buttonHeight)
+            )
+            btn.name = name
+            btn.zPosition = 2
+            btn.position = CGPoint(x: 0, y: y)
+
+            let btnBorder = SKShapeNode(rectOf: btn.size)
+            btnBorder.strokeColor = .white
+            btnBorder.lineWidth = 4
+            btnBorder.zPosition = 1
+            btnBorder.name = name
+            btn.addChild(btnBorder)
+
+            let label = SKLabelNode(fontNamed: "Courier-Bold")
+            label.text = text
+            label.fontSize = 34
+            label.fontColor = .white
+            label.verticalAlignmentMode = .center
+            label.zPosition = 3
+            label.name = name
+            btn.addChild(label)
+
+            return btn
+        }
+
+        // Nicely spaced vertical layout
+        let resumeButtonY: CGFloat  = title.position.y - 80.0
+        let restartButtonY: CGFloat = resumeButtonY - (buttonHeight + verticalSpacing)
+        let musicButtonY: CGFloat   = restartButtonY - (buttonHeight + verticalSpacing)
+        let soundButtonY: CGFloat   = musicButtonY   - (buttonHeight + verticalSpacing)
+
+        let resumeButton = makeButton(name: "resumeButton", text: "RESUME", y: resumeButtonY)
+        panel.addChild(resumeButton)
+
+        let restartButton = makeButton(name: "restartMenuButton", text: "RESTART", y: restartButtonY)
+        panel.addChild(restartButton)
+
+        let musicButton = makeButton(
+            name: "musicButton",
+            text: "MUSIC: \(isMusicOn ? "ON" : "OFF")",
+            y: musicButtonY
+        )
+        panel.addChild(musicButton)
+        if let label = musicButton.children.compactMap({ $0 as? SKLabelNode }).first {
+            musicLabel = label
+        }
+
+        let soundButton = makeButton(
+            name: "soundButton",
+            text: "SOUND: \(isSoundOn ? "ON" : "OFF")",
+            y: soundButtonY
+        )
+        panel.addChild(soundButton)
+        if let label = soundButton.children.compactMap({ $0 as? SKLabelNode }).first {
+            soundLabel = label
+        }
+
+        cameraNode.addChild(panel)
+        pausePanel = panel
+    }
+
+    func hidePauseMenu() {
+        applyPauseState(false)
+
+        pauseOverlay?.removeFromParent()
+        pausePanel?.removeFromParent()
+        pauseOverlay = nil
+        pausePanel = nil
+    }
+
+    func toggleMusic() {
+        isMusicOn.toggle()
+        musicLabel?.text = "MUSIC: \(isMusicOn ? "ON" : "OFF")"
+        // placeholder for real audio logic
+    }
+
+    func toggleSound() {
+        isSoundOn.toggle()
+        soundLabel?.text = "SOUND: \(isSoundOn ? "ON" : "OFF")"
+        // placeholder for real audio logic
     }
 
     func restartGame() {
         if let view = self.view {
             let newScene = GameScene(size: self.size)
             newScene.scaleMode = self.scaleMode
-
             let transition = SKTransition.fade(withDuration: 0.3)
             view.presentScene(newScene, transition: transition)
         }
@@ -349,11 +509,8 @@ class GameScene: SKScene {
 
     // MARK: - Cloud Parallax (based on car movement)
     func updateCloudsParallax() {
-        guard let body = vehicleBody else { return }
+        let currentX = vehicleBody.position.x
 
-        let currentX = body.position.x
-
-        // first frame: just initialise
         guard let lastX = lastVehicleX else {
             lastVehicleX = currentX
             return
@@ -372,13 +529,12 @@ class GameScene: SKScene {
         let bandTop: CGFloat    = halfHeight - 40
         let bandBottom: CGFloat = halfHeight * 0.25
 
-        let parallaxFactor: CGFloat = 0.4   // tweak: smaller = slower clouds
+        let parallaxFactor: CGFloat = 0.4
         let offsetX = -deltaX * parallaxFactor
 
         for cloud in cloudNodes {
             cloud.position.x += offsetX
 
-            // recycle on both sides so we always have clouds
             if cloud.position.x < -halfWidth - 200 {
                 cloud.position.x = halfWidth + 200
                 cloud.position.y = CGFloat.random(in: bandBottom...bandTop)
@@ -394,13 +550,34 @@ class GameScene: SKScene {
         for touch in touches {
             let location = touch.location(in: cameraNode)
             let node = cameraNode.atPoint(location)
+            let targetName = node.name ?? node.parent?.name
 
-            if node.name == "gas" {
+            if isGamePaused {
+                switch targetName {
+                case "resumeButton":
+                    hidePauseMenu()
+                case "restartMenuButton":
+                    hidePauseMenu()
+                    restartGame()
+                case "musicButton":
+                    toggleMusic()
+                case "soundButton":
+                    toggleSound()
+                default:
+                    break
+                }
+                continue
+            }
+
+            switch targetName {
+            case "gas":
                 gasPressed = true
-            } else if node.name == "brake" {
+            case "brake":
                 brakePressed = true
-            } else if node.name == "restart" {
-                restartGame()
+            case "pauseButton":
+                showPauseMenu()
+            default:
+                break
             }
         }
     }
@@ -412,11 +589,11 @@ class GameScene: SKScene {
 
     // MARK: - Physics Loop
     override func didSimulatePhysics() {
+        if isGamePaused { return }
 
         if gasPressed { accelerate() }
         if brakePressed { brake() }
 
-        // ----- UPDATE RPM + BAR -----
         var smoothedRPM: CGFloat = 0
 
         if let rear = rearWheel.physicsBody {
@@ -430,22 +607,18 @@ class GameScene: SKScene {
             rpmLabel.text = "RPM: \(Int(smoothedRPM))"
         }
 
-        // ----- REALISTIC SPEED -----
         if let body = vehicleBody.physicsBody {
             let horizontalSpeed = abs(body.velocity.dx)
             let kmh = Int(horizontalSpeed * 3.6)
             speedLabel.text = "\(kmh / 200) km/h"
         }
 
-        // Camera follows
         cameraNode.position = CGPoint(
             x: vehicleBody.position.x + 600,
             y: vehicleBody.position.y + 200
         )
 
         checkAndGenerateTerrain()
-
-        // clouds react to car movement (forward/back)
         updateCloudsParallax()
     }
 }
