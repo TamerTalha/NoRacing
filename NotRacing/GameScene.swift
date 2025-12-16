@@ -172,6 +172,7 @@ class GameScene: SKScene {
         ground.physicsBody = SKPhysicsBody(edgeChainFrom: path)
         ground.physicsBody?.isDynamic = false
         ground.physicsBody?.friction = 1.0
+        ground.physicsBody?.restitution = 0.0
 
         return ground
     }
@@ -208,7 +209,7 @@ class GameScene: SKScene {
         wheel.physicsBody = SKPhysicsBody(circleOfRadius: radius)
         wheel.physicsBody?.allowsRotation = true
         wheel.physicsBody?.friction = 2.0
-        wheel.physicsBody?.restitution = 0.2
+        wheel.physicsBody?.restitution = 0.0
         wheel.physicsBody?.linearDamping = 0.3
         wheel.physicsBody?.angularDamping = 0.4
         wheel.physicsBody?.mass = 0.1
@@ -271,21 +272,21 @@ class GameScene: SKScene {
             anchorA: body.position,
             anchorB: wheel.position
         )
-        spring.frequency = 0.00002
-        spring.damping = 0.000005
+        spring.frequency = 0.002
+        spring.damping = 0.0005
         physicsWorld.add(spring)
     }
 
     // MARK: - MOTOR LOGIC
     func accelerate() {
-        rearWheel.physicsBody?.applyTorque(-200)
+        rearWheel.physicsBody?.applyTorque(-100)
         if !anyWheelOnGround {
             vehicleBody.physicsBody?.applyAngularImpulse(0.0)
         }
     }
 
     func brake() {
-        rearWheel.physicsBody?.applyTorque(400)
+        rearWheel.physicsBody?.applyTorque(200)
         if !anyWheelOnGround {
             vehicleBody.physicsBody?.applyAngularImpulse(-0.0)
         }
